@@ -15,19 +15,41 @@ export type Result<State, Value> = E.Either<
 >;
 
 export const ok = <S, V>(state: S, value: V): Result<S, V> =>
-  E.right({ state, value });
+  E.right({ state:state, value:value });
 
 export const fail = <S, V>(error: ParserError): Result<S, V> => E.left(error);
 
-export const foldResult =
+type FoldResult = {
   <State, Value, A>(
     fn: (state: State, value: Value) => A,
     errFn: (error: ParserError) => A,
+  ): (result: Result<State, Value>) => A;
+
+  <State, Value, A>(
+    fn: (success: ParserSuccess<State, Value>) => A,
+    errFn: (error: ParserError) => A,
+  ): (result: Result<State, Value>) => A;
+};
+
+export const foldResult: FoldResult =
+  <State, Value, A>(
+    fn:
+      | ((state: State, value: Value) => A)
+      | ((success: ParserSuccess<State, Value>) => A),
+    errFn: (error: ParserError) => A,
   ) =>
   (result: Result<State, Value>) =>
-    E.fold(errFn, ({ state, value }: ParserSuccess<State, Value>) =>
-      fn(state, value),
+    E.fold(
+      errFn,
+      (success: ParserSuccess<State,Value>) =>
+        fn.length === 1
+          ? (fn as (s: ParserSuccess<State, Value>) => A)(success)
+          : (fn as (s: State, v: Value) => A)(
+              success.state,
+              success.value,
+            ),
     )(result);
+
 
 //const nextResult = <State, Value>(state: State, value: Value) => (result: Result<State, Value>) => fold(())
 

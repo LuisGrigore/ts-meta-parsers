@@ -3,7 +3,7 @@ import * as PC from "./parser_combinator";
 import * as E from "fp-ts/Either";
 
 type StringState = {
-  inputString: string;
+  input: string;
   index: number;
 };
 
@@ -15,13 +15,13 @@ type NumberState = {
 const str_parser_generator =
   (s: string): PC.Parser<StringState, string> =>
   (state: StringState) =>
-    pipe(state, ({ inputString, index }) => {
-      const remaining = inputString.slice(index);
+    pipe(state, ({ input: input, index }) => {
+      const remaining = input.slice(index);
 
       return remaining.startsWith(s)
         ? PC.ok(
             {
-              inputString,
+              input: input,
               index: index + s.length,
             },
             s,
@@ -35,13 +35,13 @@ const str_parser_generator =
 const regex_parser_generator =
   (regex: RegExp): PC.Parser<StringState, string> =>
   (state: StringState) =>
-    pipe(state, ({ inputString, index }) => {
-      const remaining = inputString.slice(index);
+    pipe(state, ({ input: input, index }) => {
+      const remaining = input.slice(index);
       const regexMatch = remaining.match(regex);
       return regexMatch
         ? PC.ok(
             {
-              inputString,
+              input: input,
               index: index + regexMatch[0].length,
             },
             regexMatch[0],
@@ -55,103 +55,80 @@ const regex_parser_generator =
 const number_parser_generator =
   (num: number): PC.Parser<StringState, number> =>
   (state: StringState) =>
-    pipe(state, ({ inputString, index }) => {
-      const remaining = inputString.slice(index);
+    pipe(state, ({ input: input, index }) => {
+      const remaining = input.slice(index);
 
       return remaining.startsWith(num.toString())
-        ? PC.ok({
-            inputString,
-            index: index + num.toString().length,
-          }, num)
+        ? PC.ok(
+            {
+              input: input,
+              index: index + num.toString().length,
+            },
+            num,
+          )
         : PC.fail({
             type: "NumberParser",
             msg: `Tried to match "${num}" but got "${remaining.slice(0, 10)}..."`,
           });
     });
 
-const char_parser = regex_parser_generator(/^[A-Za-z]/);
-const letters_parser = regex_parser_generator(/^[A-Za-z]+/);
+const printResult = <S, V>(result: PC.Result<S, V>) =>
+  PC.foldResult(
+    (success) => console.log(success),
+    (error) => console.log(error),
+  )(result);
+
+const printResultWithTitle =
+  (title: string) =>
+  <S, V>(result: PC.Result<S, V>) => {
+    (console.log("\n" + title + ":"), printResult(result));
+  };
+
+console.log("REGEX PARSERS:");
+//Parser Tests
+let title = "";
+//Alpha parser
+const alpha_parser = regex_parser_generator(/^[A-Za-z]/);
+title = "AlphaParser";
+printResultWithTitle(title + "Success")(
+  PC.run({ input: "abc", index: 0 })(alpha_parser),
+);
+printResultWithTitle(title + "Fail")(
+  PC.run({ input: "123", index: 0 })(alpha_parser),
+);
+//Alphas parser
+const alphas_parser = regex_parser_generator(/^[A-Za-z]+/);
+title = "AlphasParser";
+printResultWithTitle(title + "Success")(
+  PC.run({ input: "abc123", index: 0 })(alphas_parser),
+);
+printResultWithTitle(title + "Fail")(
+  PC.run({ input: "123abc", index: 0 })(alphas_parser),
+);
+//Digit parser
 const digit_parser = regex_parser_generator(/^[0-9]/);
-const number_parser = regex_parser_generator(/^[0-9]+/);
+title = "DigitParser";
+printResultWithTitle(title + "Success")(
+  PC.run({ input: "123abc", index: 0 })(digit_parser),
+);
+printResultWithTitle(title + "Fail")(
+  PC.run({ input: "abc123", index: 0 })(digit_parser),
+);
+//Digit parser
+const digits_parser = regex_parser_generator(/^[0-9]+/);
+title = "DigitsParser";
+printResultWithTitle(title + "Success")(
+  PC.run({ input: "123abc", index: 0 })(digits_parser),
+);
+printResultWithTitle(title + "Fail")(
+  PC.run({ input: "abc123", index: 0 })(digits_parser),
+);
 
-
-const lettersThenNumber = PC.sequenceOf(letters_parser, number_parser);
+const lettersThenNumber = PC.sequenceOf(alphas_parser, digits_parser);
 const manyLettersThenNumbers = PC.many(lettersThenNumber);
 const manyOneLettersThenNumbers = PC.manyOne(lettersThenNumber);
-const letters_or_numbers = PC.choice(letters_parser, number_parser);
+const letters_or_numbers = PC.choice(alphas_parser, digits_parser);
 const between_parenth = PC.between(
   str_parser_generator("("),
   str_parser_generator(")"),
-)(number_parser);
-
-
-
-E.fold(
-  (err) => console.log(err),
-  (succ) => console.log(succ),
-)(
-  PC.run({
-    inputString: "holaaaadios10",
-    index: 0,
-  })(parserSecuence),
-);
-
-E.fold(
-  (err) => console.log(err),
-  (succ) => console.log(succ),
-)(
-  PC.run({
-    inputString: "holaaaadios10",
-    index: 0,
-  })(lettersThenNumber),
-);
-
-E.fold(
-  (err) => console.log(err),
-  (succ) => console.log(succ),
-)(
-  PC.run({
-    inputString: "10holaaaadios10",
-    index: 0,
-  })(letter_or_number),
-);
-
-E.fold(
-  (err) => console.log(err),
-  (succ) => console.log(succ),
-)(
-  PC.run({
-    inputString: "10holaaaadios10",
-    index: 0,
-  })(PC.many(letter_or_number)),
-);
-
-E.fold(
-  (err) => console.log(err),
-  (succ) => console.log(succ),
-)(
-  PC.run({
-    inputString: "  %%& &",
-    index: 0,
-  })(PC.many(letter_or_number)),
-);
-
-E.fold(
-  (err) => console.log(err),
-  (succ) => console.log(succ),
-)(
-  PC.run({
-    inputString: "10holaaaadios10",
-    index: 0,
-  })(PC.manyOne(letter_or_number)),
-);
-
-E.fold(
-  (err) => console.log(err),
-  (succ) => console.log(succ),
-)(
-  PC.run({
-    inputString: "  %%& &",
-    index: 0,
-  })(PC.manyOne(letter_or_number)),
-);
+)(digits_parser);
