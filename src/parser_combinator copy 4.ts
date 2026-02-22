@@ -4,7 +4,8 @@ import { pipe } from "fp-ts/function";
 export interface ParserError {
   type: string;
   msg: string;
-  cause?: ParserError;
+  position?: { line: number; col: number; offset: number };
+  cause?: ParserError | ParserError[];
 }
 
 export type ParserSuccess<State, Value> = { state: State; value: Value };
@@ -50,22 +51,7 @@ export const foldResult: FoldResult =
             ),
     )(result);
 
-
-//const nextResult = <State, Value>(state: State, value: Value) => (result: Result<State, Value>) => fold(())
-
 export type Parser<State, Value> = (state: State) => Result<State, Value>;
-
-// export const chain =
-//   <State, ValueA, ValueB>(fn: (value: ValueA) => Parser<State, ValueB>) =>
-//   (parser: Parser<State, ValueA>): Parser<State, ValueB> =>
-//   (state: State) => {
-//     const result = parser(state);
-//     if (E.isLeft(result)) {
-//       return result;
-//     }
-//     const { state: nextState, value: value } = result.right;
-//     return fn(value)(nextState);
-//   };
 
 export const chain =
   <State, ValueA, ValueB>(fn: (value: ValueA) => Parser<State, ValueB>) =>
@@ -78,16 +64,6 @@ export const chain =
         (err) => fail(err),
       ),
     );
-
-// export const attemptChain =
-//   <AO1, AO2>(fn: (state: Result<AO1>) => Parser<AO1, AO2>) =>
-//   <AI1>(parser: Parser<AI1, AO1>): Parser<AI1, AO2> =>
-//   (state) => {
-//     const result = parser(state);
-
-//     const nextParser = fn(result);
-//     return nextParser(result);
-//   };
 
 export const map =
   <ValueA, ValueB>(fn: (value: ValueA) => ValueB) =>
@@ -109,6 +85,9 @@ export const mapError =
     return result;
   };
 
+export const mapState = <S, A>(fn: (s: S) => S) => (parser: Parser<S, A>): Parser<S, A> =>
+  (state) => pipe(parser(state), E.map(({ state: s, value }) => ({ state: fn(s), value })));
+
 export const bimap =
   <State, ValueA, ValueB>(
     fn: (success: ValueA) => ValueB,
@@ -121,37 +100,6 @@ export const run =
   <State>(input: State) =>
   <Value>(parser: Parser<State, Value>): Result<State, Value> =>
     parser(input);
-
-// type State<P> = P extends Parser<infer State, any> ? Result<State,any> : never;
-
-// type Out<P> = P extends Parser<any, infer A2> ? Result<A2> : never;
-
-// type ParserChain<T extends Parser<any, any>[]> = T extends [
-//   infer P1,
-//   infer P2,
-//   ...infer Rest,
-// ]
-//   ? P1 extends Parser<any, any>
-//     ? P2 extends Parser<any, any>
-//       ? [Out<P1>] extends [State<P2>]
-//         ? [
-//             P1,
-//             ...ParserChain<
-//               [P2, ...(Rest extends Parser<any, any>[] ? Rest : [])]
-//             >,
-//           ]
-//         : never
-//       : never
-//     : never
-//   : T;
-
-// type FirstInput<T extends Parser<any, any>[]> = T extends [infer P, ...any[]]
-//   ? State<P>
-//   : never;
-
-// type LastOutput<T extends Parser<any, any>[]> = T extends [...any[], infer P]
-//   ? Out<P>
-//   : never;
 
 type ParserState<P> = P extends Parser<infer S, any> ? S : never;
 
@@ -175,39 +123,6 @@ type ParserValueIntersection<T extends readonly Parser<any, any>[]> =
       : never
     : unknown;
 
-// type ParserChain<T extends Parser<any, any>[]> =
-//   T extends [infer P1, infer P2, ...infer Rest]
-//     ? P1 extends Parser<any, any>
-//       ? P2 extends Parser<any, any>
-//         ? ParserState<P1> extends ParserState<P2>
-//           ? [
-//               P1,
-//               ...ParserChain<
-//                 [P2, ...(Rest extends Parser<any, any>[] ? Rest : [])]
-//               >
-//             ]
-//           : never
-//         : never
-//       : never
-//     : T;
-
-// type FirstState<T extends Parser<any, any>[]> =
-//   T extends [infer P, ...any[]]
-//     ? ParserState<P>
-//     : never;
-
-// type LastValue<T extends Parser<any, any>[]> =
-//   T extends [...any[], infer P]
-//     ? ParserValue<P>
-//     : never;
-
-// export function pipeParsers<T extends Parser<any, any>[]>(
-//   ...parsers: ParserChain<T>
-// ) {
-//   return (state: FirstInput<T>): LastOutput<T> =>
-//     parsers.reduce((acc, p) => p(acc), state as any);
-// }
-
 type ValuesOf<T extends /*readonly*/ Parser<any, any>[]> = {
   [K in keyof T]: ParserValue<T[K]>;
 };
@@ -229,9 +144,6 @@ type UnionToIntersection<U> = (U extends any ? (x: U) => void : never) extends (
   ? I
   : never;
 
-// type StateUnion<P extends readonly Parser<any, any>[]> = UnionToIntersection<
-//   ParserState<P[number]>
-// >;
 
 export const sequenceOf =
   <const T extends /*readonly*/ Parser<any, any>[]>(
@@ -266,46 +178,6 @@ export const between =
     map((results: [L, A, R]) => results[1])(
       sequenceOf(leftParser, contentParser, rightParser),
     );
-
-// export const between =
-//   <State, L, R>(leftParser: Parser<State, L>, rightParser: Parser<State, R>) =>
-//   <A>(contentParser: Parser<State, A>): Parser<State, A> =>
-//     map((results: [L, A, R]) => results[1])(
-//       sequenceOf(leftParser, contentParser, rightParser),
-//     );
-
-//type ParserValue<P> = P extends Parser<any, infer V> ? V : never;
-
-// export const choice = <S, T extends /*readonly*/ Parser< S, any>[]>(
-//   ...parsers: T
-// ) => {
-//   return (state: S) => {
-//     const errors: ParserError[] = [];
-
-//     for (const parser of parsers) {
-//       const result = parser(state);
-
-//       if (E.isRight(result)) {
-//         return result as Result<S, ParserValue<T[number]>>;
-//       }
-
-//       errors.push(result.left);
-//     }
-
-//     return fail({
-//       type: "choice",
-//       msg: "No parser matched in choice",
-//       cause:
-//         errors.length === 1
-//           ? errors[0]
-//           : {
-//               type: "multiple",
-//               msg: "Multiple choice errors",
-//               cause: undefined,
-//             },
-//     });
-//   };
-// }
 
 export const choice =
   <const T extends readonly Parser<any, any>[]>(
@@ -392,5 +264,30 @@ export const manyOne =
 
       results.push(next.right.value);
       currentState = next.right.state;
+    }
+  };
+
+export const lazy = <S, A>(fn: () => Parser<S, A>): Parser<S, A> =>
+  (state) => fn()(state);
+
+export const optional = <S, A>(parser: Parser<S, A>): Parser<S, A | null> =>
+  (state) => {
+    const result = parser(state);
+    return E.isRight(result) ? result : ok(state, null);
+  };
+
+export const sepBy = <S, A, B>(sep: Parser<S, B>) => (parser: Parser<S, A>): Parser<S, readonly A[]> =>
+  (state) => {
+    const first = parser(state);
+    if (E.isLeft(first)) return ok(state, []);
+    const results = [first.right.value];
+    let cur = first.right.state;
+    while (true) {
+      const s = sep(cur);
+      if (E.isLeft(s)) return ok(cur, results);
+      const p = parser(s.right.state);
+      if (E.isLeft(p)) return ok(cur, results);
+      results.push(p.right.value);
+      cur = p.right.state;
     }
   };
