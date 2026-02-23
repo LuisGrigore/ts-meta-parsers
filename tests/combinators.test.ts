@@ -1,71 +1,315 @@
-import { sequenceOf, choice, many, manyOne, between, lazy, optional, sepBy } from '../src/combinators';
-import { Parser } from '../src/types';
-import * as O from 'fp-ts/Option';
+import * as E from "fp-ts/Either";
+import * as O from "fp-ts/Option";
+import {
+  sequenceOf,
+  between,
+  choice,
+  many,
+  manyOne,
+  manyTill,
+  optional,
+  sepBy,
+  orElse,
+  skip,
+  before,
+  attempt,
+  label,
+  lazy,
+} from "../src/combinators";
 
-describe('parser_combinator/combinators', () => {
-  test('sequenceOf combines parsers in sequence', () => {
-    // Example: combine two parsers
-    const parserA: Parser<string, string> = (input) => ({ _tag: 'Right', right: { state: input.slice(1), value: input[0] } });
-    const parserB: Parser<string, string> = (input) => ({ _tag: 'Right', right: { state: input.slice(1), value: input[0] } });
-    const parser = sequenceOf(parserA, parserB);
-    const result = parser('ab');
-    expect(result.right.value).toEqual(['a', 'b']);
+import { ok, fail, of } from "../src/monad";
+import { Parser } from "../src/types";
+
+type TestState = { input: string; index: number };
+
+const state = (input: string, index = 0): TestState => ({
+  input,
+  index,
+});
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+const char =
+  (expected: string): Parser<TestState, string> =>
+  (s) =>
+    s.input[s.index] === expected
+      ? ok({ ...s, index: s.index + 1 }, expected)
+      : fail({
+          type: "char",
+          msg: `Expected ${expected}`,
+          position: { offset: s.index },
+        });
+
+const digit: Parser<TestState, string> = (s) =>
+  /\d/.test(s.input[s.index])
+    ? ok({ ...s, index: s.index + 1 }, s.input[s.index])
+    : fail({
+        type: "digit",
+        msg: "Expected digit",
+        position: { offset: s.index },
+      });
+
+/* -------------------------------------------------------------------------- */
+/* sequenceOf                                                                 */
+/* -------------------------------------------------------------------------- */
+
+describe("sequenceOf", () => {
+  it("should parse sequentially", () => {
+    const parser = sequenceOf(char("a"), char("b"), char("c"));
+    const result = parser(state("abc"));
+
+    expect(E.isRight(result)).toBe(true);
+    if (E.isRight(result)) {
+      expect(result.right.value).toEqual(["a", "b", "c"]);
+      expect(result.right.state.index).toBe(3);
+    }
   });
 
-  test('choice tries parsers until one succeeds', () => {
-    const parserA: Parser<string, string> = (input) => ({ _tag: 'Left', left: { type: 'error', msg: 'fail', position: { offset: 0 } } });
-    const parserB: Parser<string, string> = (input) => ({ _tag: 'Right', right: { state: input.slice(1), value: input[0] } });
-    const parser = choice([parserA, parserB]);
-    const result = parser('b');
-    expect(result.right.value).toBe('b');
+  it("should fail if any parser fails", () => {
+    const parser = sequenceOf(char("a"), char("x"));
+    const result = parser(state("ab"));
+
+    expect(E.isLeft(result)).toBe(true);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* between                                                                    */
+/* -------------------------------------------------------------------------- */
+
+describe("between", () => {
+  it("should parse content between delimiters", () => {
+    const parser = between(char("("), char(")"))(char("a"));
+    const result = parser(state("(a)"));
+
+    expect(E.isRight(result)).toBe(true);
+    if (E.isRight(result)) {
+      expect(result.right.value).toBe("a");
+    }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* choice                                                                     */
+/* -------------------------------------------------------------------------- */
+
+describe("choice", () => {
+  it("should return first successful parser", () => {
+    const parser = choice(char("x"), char("a"));
+    const result = parser(state("abc"));
+
+    expect(E.isRight(result)).toBe(true);
+    if (E.isRight(result)) {
+      expect(result.right.value).toBe("a");
+    }
   });
 
-  test('many applies parser zero or more times', () => {
-    const parser: Parser<string, string> = (input) => input.length > 0 ? ({ _tag: 'Right', right: { state: input.slice(1), value: input[0] } }) : ({ _tag: 'Left', left: { type: 'error', msg: 'fail', position: { offset: 0 } } });
-    const manyParser = many(parser);
-    const result = manyParser('abc');
-    expect(result.right.value).toEqual(['a', 'b', 'c']);
+  it("should fail if all fail", () => {
+    const parser = choice(char("x"), char("y"));
+    const result = parser(state("abc"));
+
+    expect(E.isLeft(result)).toBe(true);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* many / manyOne                                                             */
+/* -------------------------------------------------------------------------- */
+
+describe("many", () => {
+  it("should parse zero or more", () => {
+    const parser = many(char("a"));
+    const result = parser(state("aaab"));
+
+    expect(E.isRight(result)).toBe(true);
+    if (E.isRight(result)) {
+      expect(result.right.value).toEqual(["a", "a", "a"]);
+    }
   });
 
-  test('manyOne applies parser one or more times', () => {
-    const parser: Parser<string, string> = (input) => input.length > 0 ? ({ _tag: 'Right', right: { state: input.slice(1), value: input[0] } }) : ({ _tag: 'Left', left: { type: 'error', msg: 'fail', position: { offset: 0 } } });
-    const manyOneParser = manyOne(parser);
-    const result = manyOneParser('abc');
-    expect(result.right.value).toEqual(['a', 'b', 'c']);
+  it("should succeed with empty array if none match", () => {
+    const parser = many(char("a"));
+    const result = parser(state("bbb"));
+
+    expect(E.isRight(result)).toBe(true);
+    if (E.isRight(result)) {
+      expect(result.right.value).toEqual([]);
+    }
+  });
+});
+
+describe("manyOne", () => {
+  it("should require at least one match", () => {
+    const parser = manyOne(char("a"));
+    const result = parser(state("aaa"));
+
+    expect(E.isRight(result)).toBe(true);
   });
 
-  test('between applies parser between two others', () => {
-    const left: Parser<string, string> = (input) => ({ _tag: 'Right', right: { state: input.slice(1), value: input[0] } });
-    const right: Parser<string, string> = (input) => ({ _tag: 'Right', right: { state: input.slice(1), value: input[0] } });
-    const middle: Parser<string, string> = (input) => ({ _tag: 'Right', right: { state: input.slice(1), value: input[0] } });
-    const parser = between(left, right)(middle);
-    const result = parser('abc');
-    expect(result.right.value).toBe('b');
+  it("should fail if none match", () => {
+    const parser = manyOne(char("a"));
+    const result = parser(state("bbb"));
+
+    expect(E.isLeft(result)).toBe(true);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* manyTill                                                                   */
+/* -------------------------------------------------------------------------- */
+
+describe("manyTill", () => {
+  it("should parse until end parser matches", () => {
+    const parser = manyTill(char("!"))(char("a"));
+    const result = parser(state("aaa!"));
+
+    expect(E.isRight(result)).toBe(true);
+    if (E.isRight(result)) {
+      expect(result.right.value).toEqual(["a", "a", "a"]);
+    }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* optional                                                                   */
+/* -------------------------------------------------------------------------- */
+
+describe("optional", () => {
+  it("should return Some if parser succeeds", () => {
+    const parser = optional(char("a"));
+    const result = parser(state("abc"));
+
+    expect(E.isRight(result)).toBe(true);
+    if (E.isRight(result)) {
+      expect(O.isSome(result.right.value)).toBe(true);
+    }
   });
 
-  test('lazy defers parser execution', () => {
-    let called = false;
-    const parser: Parser<string, string> = (input) => { called = true; return { _tag: 'Right', right: { state: input.slice(1), value: input[0] } }; };
-    const lazyParser = lazy(() => parser);
-    const result = lazyParser('a');
-    expect(called).toBe(true);
-    expect(result.right.value).toBe('a');
+  it("should return None if parser fails", () => {
+    const parser = optional(char("x"));
+    const result = parser(state("abc"));
+
+    expect(E.isRight(result)).toBe(true);
+    if (E.isRight(result)) {
+      expect(O.isNone(result.right.value)).toBe(true);
+    }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* sepBy                                                                      */
+/* -------------------------------------------------------------------------- */
+
+describe("sepBy", () => {
+  it("should parse separated values", () => {
+    const parser = sepBy(char(","))(digit);
+    const result = parser(state("1,2,3"));
+
+    expect(E.isRight(result)).toBe(true);
+    if (E.isRight(result)) {
+      expect(result.right.value).toEqual(["1", "2", "3"]);
+    }
   });
 
-  test('optional returns Option', () => {
-    const parser: Parser<string, string> = (input) => input.length > 0 ? ({ _tag: 'Right', right: { state: input.slice(1), value: input[0] } }) : ({ _tag: 'Left', left: { type: 'error', msg: 'fail', position: { offset: 0 } } });
-    const optionalParser = optional(parser);
-    const resultSome = optionalParser('a');
-    expect(O.isSome(resultSome.right.value)).toBe(true);
-    const resultNone = optionalParser('');
-    expect(O.isNone(resultNone.right.value)).toBe(true);
-  });
+  it("should return empty array if first fails", () => {
+    const parser = sepBy(char(","))(digit);
+    const result = parser(state("abc"));
 
-  test('sepBy parses values separated by separator', () => {
-    const sep: Parser<string, string> = (input) => input[0] === ',' ? ({ _tag: 'Right', right: { state: input.slice(1), value: ',' } }) : ({ _tag: 'Left', left: { type: 'error', msg: 'fail', position: { offset: 0 } } });
-    const parser: Parser<string, string> = (input) => input.length > 0 && input[0] !== ',' ? ({ _tag: 'Right', right: { state: input.slice(1), value: input[0] } }) : ({ _tag: 'Left', left: { type: 'error', msg: 'fail', position: { offset: 0 } } });
-    const sepByParser = sepBy(sep)(parser);
-    const result = sepByParser('a,b,c');
-    expect(result.right.value).toEqual(['a', 'b', 'c']);
+    expect(E.isRight(result)).toBe(true);
+    if (E.isRight(result)) {
+      expect(result.right.value).toEqual([]);
+    }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* orElse                                                                     */
+/* -------------------------------------------------------------------------- */
+
+describe("orElse", () => {
+  it("should return first if success", () => {
+    const parser = orElse(char("a"))(char("b"));
+    const result = parser(state("abc"));
+
+    expect(E.isRight(result)).toBe(true);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* skip                                                                       */
+/* -------------------------------------------------------------------------- */
+
+describe("skip", () => {
+  it("should ignore value", () => {
+    const parser = skip(char("a"));
+    const result = parser(state("abc"));
+
+    expect(E.isRight(result)).toBe(true);
+    if (E.isRight(result)) {
+      expect(result.right.value).toBeUndefined();
+    }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* before                                                                     */
+/* -------------------------------------------------------------------------- */
+
+describe("before", () => {
+  it("should keep first value", () => {
+    const parser = before(char("a"))(char("b"));
+    const result = parser(state("ab"));
+
+    expect(E.isRight(result)).toBe(true);
+    if (E.isRight(result)) {
+      expect(result.right.value).toBe("a");
+    }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* attempt                                                                    */
+/* -------------------------------------------------------------------------- */
+
+describe("attempt", () => {
+  it("should reset state on failure", () => {
+    const parser = attempt(char("x"));
+    const result = parser(state("abc"));
+
+    expect(E.isRight(result)).toBe(true);
+    if (E.isRight(result)) {
+      expect(result.right.state.index).toBe(0);
+    }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* label                                                                      */
+/* -------------------------------------------------------------------------- */
+
+describe("label", () => {
+  it("should override error message", () => {
+    const parser = label(char("x"), "Expected X");
+    const result = parser(state("abc"));
+
+    expect(E.isLeft(result)).toBe(true);
+    if (E.isLeft(result)) {
+      expect(result.left.msg).toBe("Expected X");
+    }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* lazy                                                                       */
+/* -------------------------------------------------------------------------- */
+
+describe("lazy", () => {
+  it("should defer parser execution", () => {
+    const parser = lazy(() => char("a"));
+    const result = parser(state("abc"));
+
+    expect(E.isRight(result)).toBe(true);
   });
 });

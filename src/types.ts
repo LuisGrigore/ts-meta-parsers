@@ -16,3 +16,12 @@ export type Success<State, Value> = { state: State; value: Value };
 export type Parser<State, Value> = (
   state: State,
 ) => E.Either<Error, Success<State, Value>>;
+
+export interface IterableParserState<I extends Iterable<any>> {
+  input: I;
+  index: number;
+}
+
+export interface StringParserState extends IterableParserState<string> {
+  input: string;
+}

@@ -1,14 +1,22 @@
+/**
+ * Parser combinators for building complex parsers from simple ones.
+ * @module parser_combinator/combinators
+ */
+
 import { Parser, Success, Error } from "./types";
 import { of, ap, map, chain, ok, fail } from "./monad";
 import { pipe } from "fp-ts/lib/function";
 import * as O from "fp-ts/Option";
 import * as E from "fp-ts/Either";
 
-/**
- * Parser combinators for building complex parsers from simple ones.
- * @module parser_combinator/combinators
- */
+/* --------------------------------------------------------------------------
+ * Basic Combinators
+ * -------------------------------------------------------------------------- */
 
+/**
+ * Combines multiple parsers in sequence.
+ * Returns an array of all parsed values.
+ */
 export const sequenceOf = <T extends Parser<any, any>[]>(
   ...parsers: T
 ): Parser<
@@ -26,24 +34,18 @@ export const sequenceOf = <T extends Parser<any, any>[]>(
   );
 
 /**
- * Combines multiple parsers into a single parser that succeeds if all parsers succeed.
- * @param parsers - An array of parsers to combine.
- * @returns A parser that succeeds if all parsers succeed.
+ * Wraps a parser between two other parsers.
+ * Useful for parentheses or brackets.
  */
-
 export const between =
-  <S, L, R>(leftParser: Parser<S, L>, rightParser: Parser<S, R>) =>
-  <C>(contentParser: Parser<S, C>): Parser<S, C> =>
-    map((results: [L, C, R]) => results[1])(
-      sequenceOf(leftParser, contentParser, rightParser),
-    );
+  <S, L, R>(left: Parser<S, L>, right: Parser<S, R>) =>
+  <C>(content: Parser<S, C>): Parser<S, C> =>
+    map(([_, value, __]: [L, C, R]) => value)(sequenceOf(left, content, right));
 
 /**
- * Tries each parser in sequence until one succeeds.
- * @param parsers - An array of parsers to try.
- * @returns A parser that returns the result of the first successful parser.
+ * Tries parsers one by one until one succeeds.
+ * Returns the first successful parser's value.
  */
-
 export const choice =
   <T extends Parser<any, any>[]>(
     ...parsers: T
@@ -59,27 +61,29 @@ export const choice =
       if (remaining.length === 0) {
         return fail({
           type: "choice",
-          msg: `No parser matched at index ${state.index}`,
-          position: { offset: state.index },
+          msg: `No parser matched at index ${(state as any).index}`,
+          position: { offset: (state as any).index },
           cause: errors.length === 1 ? errors[0] : errors,
         });
       }
       const [head, ...tail] = remaining;
       return E.match(
-        (err:Error) => tryNext(tail, [...errors, err]),
-        (success:Success<unknown,unknown>) => ok(success.state, success.value),
+        (err: Error) => tryNext(tail, [...errors, err]),
+        (success: Success<unknown, unknown>) =>
+          ok(success.state, success.value),
       )(head(state));
     };
-
     return tryNext(parsers);
   };
 
+/* --------------------------------------------------------------------------
+ * Repetition Combinators
+ * -------------------------------------------------------------------------- */
+
 /**
  * Applies a parser zero or more times.
- * @param parser - The parser to apply.
- * @returns A parser that returns an array of results.
+ * Returns an array of results.
  */
-
 export const many = <S, A>(parser: Parser<S, A>): Parser<S, A[]> => {
   const recur: Parser<S, A[]> = (state: S) =>
     E.match(
@@ -92,30 +96,41 @@ export const many = <S, A>(parser: Parser<S, A>): Parser<S, A[]> => {
 
 /**
  * Applies a parser one or more times.
- * @param parser - The parser to apply.
- * @returns A parser that returns an array of results.
+ * Returns an array of results.
  */
-
 export const manyOne = <S, A>(parser: Parser<S, A>): Parser<S, A[]> =>
   ap(map((head: A) => (tail: A[]) => [head, ...tail])(parser))(many(parser));
 
 /**
- * Creates a parser that defers its execution until invoked.
- * @param fn - A function that returns a parser.
- * @returns A parser that executes the deferred parser.
+ * Applies a parser repeatedly until an end parser matches.
  */
+export const manyTill =
+  <S, A, B>(end: Parser<S, B>) =>
+  (parser: Parser<S, A>): Parser<S, A[]> =>
+    choice(
+      chain(() => of<A[]>([]))(end),
+      chain((value: A) =>
+        map((rest: A[]) => [value, ...rest])(
+          lazy(() => manyTill(end)(parser) as Parser<S, A[]>),
+        ),
+      )(parser),
+    );
 
+/* --------------------------------------------------------------------------
+ * Utility Combinators
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Defers parser execution (lazy parser) to allow recursion.
+ */
 export const lazy =
   <S, A>(fn: () => Parser<S, A>): Parser<S, A> =>
-  (state:S) =>
+  (state: S) =>
     fn()(state);
 
 /**
- * Creates a parser that optionally applies another parser.
- * @param parser - The parser to apply.
- * @returns A parser that returns an option of the result.
+ * Makes a parser optional, returning Option<A>.
  */
-
 export const optional =
   <S, A>(parser: Parser<S, A>): Parser<S, O.Option<A>> =>
   (state: S) =>
@@ -123,17 +138,13 @@ export const optional =
       parser(state),
       E.match(
         () => ok<S, O.Option<A>>(state, O.none),
-        (success) =>
-          ok<S, O.Option<A>>(success.state, O.some(success.value)),
-      )
+        (success) => ok<S, O.Option<A>>(success.state, O.some(success.value)),
+      ),
     );
 
 /**
- * Parses a value separated by a specified separator.
- * @param sep - The separator parser.
- * @returns A parser that returns an array of results.
+ * Parses values separated by a specific separator.
  */
-
 export const sepBy =
   <S, A, B>(sep: Parser<S, B>) =>
   (parser: Parser<S, A>): Parser<S, A[]> =>
@@ -146,41 +157,48 @@ export const sepBy =
         )(success.state),
     )(parser(state));
 
-
+/**
+ * Returns the first parser if it succeeds, otherwise the second.
+ */
 export const orElse =
   <S, A>(p1: Parser<S, A>) =>
   (p2: Parser<S, A>): Parser<S, A> =>
     choice(p1, p2);
 
-export const skip =
-  <S, A>(parser: Parser<S, A>): Parser<S, void> =>
-    map(() => undefined)(parser);
+/**
+ * Ignores the value of a parser, returning void.
+ */
+export const skip = <S, A>(parser: Parser<S, A>): Parser<S, void> =>
+  map(() => undefined)(parser);
 
+/**
+ * Returns the value of the first parser, ignoring the second.
+ */
 export const before =
   <S, A, B>(pa: Parser<S, A>) =>
   (pb: Parser<S, B>): Parser<S, A> =>
-    chain((a:A) => map(() => a)(pb))(pa);
+    chain((a: A) => map(() => a)(pb))(pa);
 
-export const manyTill =
-  <S, A, B>(end: Parser<S, B>) =>
-  (parser: Parser<S, A>): Parser<S, A[]> =>
-    choice(
-      chain(() => of<A[]>([]))(end),
-      chain((value: A) =>
-        map((rest: A[]) => [value, ...rest])(
-          lazy(() => manyTill(end)(parser) as Parser<S, A[]>)
-        )
-      )(parser)
-    );
+/* --------------------------------------------------------------------------
+ * Backtracking and Error Utilities
+ * -------------------------------------------------------------------------- */
 
-export const attempt = <S, A>(parser: Parser<S, A>): Parser<S, A> =>
+/**
+ * Runs a parser but ignores failure (resets state if failed).
+ */
+export const attempt =
+  <S, A>(parser: Parser<S, A>): Parser<S, A> =>
   (state: S) => {
     const result = parser(state);
     if (E.isLeft(result)) return ok(state, undefined as any);
     return result;
   };
 
-export const label = <S, A>(parser: Parser<S, A>, msg: string): Parser<S, A> =>
+/**
+ * Labels a parser to improve error messages.
+ */
+export const label =
+  <S, A>(parser: Parser<S, A>, msg: string): Parser<S, A> =>
   (state: S) => {
     const result = parser(state);
     if (E.isLeft(result)) {
