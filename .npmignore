@@ -20,6 +20,3 @@ pnpm-lock.yaml
 .DS_Store
 *.log
 *.tsbuildinfo
-
-# Otros archivos que no se necesitan
-a.txt
