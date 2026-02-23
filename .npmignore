@@ -1,0 +1,25 @@
+# Node modules
+node_modules/
+
+# Source files (TS)
+src/
+tests/
+
+# TypeScript config
+tsconfig.json
+
+# Jest config
+jest.config.js
+
+# Lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Editor / OS files
+.DS_Store
+*.log
+*.tsbuildinfo
+
+# Otros archivos que no se necesitan
+a.txt
