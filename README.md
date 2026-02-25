@@ -1,62 +1,116 @@
-# Calc-lang Parser Combinator Library
+# meta-parsers
 
-A TypeScript library for building parser combinators, enabling the creation of complex parsers from simple, reusable components. This library is designed for functional programming and monadic composition, inspired by Haskell and F# parser combinator patterns.
+**meta-parsers** is a TypeScript parser combinator library based on functional programming principles and monadic design. It enables users to build complex, composable parsers from simple building blocks, with strong type safety and integration with [fp-ts](https://github.com/gcanti/fp-ts).
+
+---
 
 ## Features
-- Modular parser combinators
-- Monad utilities for parser composition
-- Result types for error handling
-- Type-safe and extensible
+- **Composable combinators** for building complex parsers from simple ones.
+- **Primitives** for parsing strings and generic sequences.
+- **Monadic API** using `Either`, `Success`, and `Error` types.
+- **TypeScript-first**: fully typed, with extensible parser and state types.
+- **Functional**: designed to work seamlessly with fp-ts and functional programming patterns.
+- **Jest tests** included.
+
+---
 
 ## Installation
 
-```
-npm install calc-lang
+```bash
+npm install git+https://github.com/LuisGrigore/ts-meta-parsers.git
 ```
 
-## Usage Example
+---
+
+## Basic Usage Example
+
 ```typescript
-import { sequenceOf, choice, many, optional } from 'calc-lang/src/parser_combinator/combinators';
-import { Parser } from 'calc-lang/src/parser_combinator/types';
+import { matchString, sequenceOf } from 'meta-parsers';
 
-const digitParser: Parser<string, string> = (input) => {
-  // ...implementation...
-};
+const parser = sequenceOf(
+  matchString('hello'),
+  matchString(' '),
+  matchString('world')
+);
 
-const numberParser = many(digitParser);
-const optionalSign = optional(choice([char('+'), char('-')]));
-const signedNumberParser = sequenceOf([optionalSign, numberParser]);
+const state = { input: 'hello world', index: 0 };
+const result = parser(state);
+// result: Either<Error, Success<State, Value[]>>
 ```
 
-## Module Structure
+---
 
-- `parser_combinator/combinators.ts`: Core parser combinators (sequence, choice, many, etc.)
-- `parser_combinator/monad.ts`: Monad utilities for parser composition
-- `parser_combinator/types.ts`: Type definitions for parsers
-- `parser_combinator/result/`: Result types and monad utilities for parser results
+## API Documentation
 
-## API Reference
+### Parser Types
+- **Parser<State, Value>**: `(state: State) => Either<Error, Success<State, Value>>`
+- **Success<State, Value>**: `{ state: State; value: Value }`
+- **Error**: `{ type: string; msg: string; position?: { line?: number; col?: number; offset: number }; cause?: Error | Error[] }`
+
+### Parser Primitives
+- `satisfy(predicate, errMsg?)`: Parses an element if it satisfies the predicate.
+- `matchElem(elem)`: Parses a specific element.
+- `oneOf(elems)`: Parses if the element is in the provided list.
+- `noneOf(elems)`: Parses if the element is not in the provided list.
+
+### String Parser Primitives
+- `eof()`: Succeeds at end of input.
+- `matchChar(char)`: Parses a specific character.
+- `matchString(str)`: Parses a specific string.
+- `matchRegex(regex)`: Parses a string matching the regex.
+- `matchNumber`: Parses a number (integer or float).
+- `alpha()`: Parses an alphabetic character.
+- `digit()`: Parses a digit.
+- `alphaNum()`: Parses an alphanumeric character.
+- `digits()`: Parses a sequence of digits.
 
 ### Combinators
-- `sequenceOf(...parsers)`: Combines multiple parsers in sequence
-- `choice(parsers)`: Tries each parser until one succeeds
-- `many(parser)`: Applies a parser zero or more times
-- `optional(parser)`: Optionally applies a parser
-- `sepBy(sep)(parser)`: Parses values separated by a separator
+- `sequenceOf(...parsers)`: Runs parsers in sequence, collects results.
+- `between(left, right)(content)`: Parses content between two parsers.
+- `choice(...parsers)`: Tries parsers in order, returns first success.
+- `many(parser)`: Zero or more repetitions.
+- `manyOne(parser)`: One or more repetitions.
+- `manyTill(end)(parser)`: Repeats parser until end parser matches.
+- `lazy(() => parser)`: Allows recursive parsers.
+- `optional(parser)`: Optionally parses, returns Option type.
+- `sepBy(sep)(parser)`: Parses values separated by a separator.
+- `orElse(p1)(p2)`: Tries p1, if fails tries p2.
+- `skip(parser)`: Ignores parser result.
+- `before(pa)(pb)`: Parses pa, then pb, returns pa's value.
+- `attempt(parser)`: Backtracks on failure.
+- `label(parser, msg)`: Labels parser for better error messages.
 
 ### Monad Utilities
-- `of(value)`: Wraps a value in a parser
-- `chain(fn)`: Chains parsers monadically
-- `map(fn)`: Maps a function over parser results
-- `ap(pf)(pa)`: Applies a parser function to a parser argument
+- `ok(state, value)`: Constructs a successful result.
+- `fail(error)`: Constructs a failed result.
+- `of(value)`: Lifts a value into a parser.
+- `map(fn)(parser)`: Maps result value.
+- `chain(fn)(parser)`: Chains parsers.
+- `ap(pf)(pa)`: Applies a parser containing a function to a parser containing a value.
+- `mapError(fn)(parser)`: Maps parser errors.
+- `bimap(fn, eFn)(parser)`: Maps both result and error.
 
-### Result Types
-- `Result<State, Value>`: Either an error or a success
-- `Error`: Error structure with type, message, and position
-- `Success<State, Value>`: Success structure with state and value
+---
+
+## Project Structure
+- **src/types.ts**: Core type definitions.
+- **src/monad.ts**: Monad and functional helpers.
+- **src/combinators.ts**: Parser combinators.
+- **src/parser_primitives.ts**: Generic parser primitives.
+- **src/string_parser_primitives.ts**: String-specific parser primitives.
+
+---
+
+## Testing
+
+Run all tests with:
+
+```bash
+npm test
+```
+
+---
 
 ## License
-MIT
 
-## Contributing
-Pull requests and issues are welcome!
+MIT
