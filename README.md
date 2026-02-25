@@ -111,6 +111,12 @@ npm test
 
 ---
 
+## Acknowledgments
+
+This library builds upon concepts and types from fp-ts, licensed under MIT.
+
+---
+
 ## License
 
 MIT
